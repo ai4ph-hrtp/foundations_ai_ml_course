@@ -2,8 +2,9 @@
 title: "Assignment 1"
 author: "Dan Lizotte and Daniel Fuller"
 output:
-      html_document:
-        keep_md: true
+  html_document:
+    keep_md: true
+  pdf_document: default
 ---
 
 
@@ -65,7 +66,7 @@ Answer
 
 ## Model Fit
 
-4. This question should be answered using the `canpath_data.csv` available on the Canvas page. An example logistic regression is presented in the [Data Analysis]() page of the Github repo for the course. You can use that as an example to run your regression. 
+4. This question should be answered using the `canpath_data.csv` available on the Canvas page. An example logistic regression is presented in the [Data Analysis](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/logistic_regression.md) page of the Github repo for the course. You can use that as an example to run your regression. 
 
 (a) Use the full data set to perform a logistic regression with `diabetes` as the response and the following variables as predictors
         * Age = SDC_AGE_CALC
@@ -144,7 +145,7 @@ Your comments here
 Your comments here
 ```
 
-8. Conduct the same analysis as question 4 using the Random Forest method. For an extra challenge include cross-validation and hyperparameter tuning in your analysis. 
+8. Conduct the same analysis as question 4 using the Random Forest method. There is an example implementation in the [Data Analysis](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/random_forest.md) section on Github. For an extra challenge include cross-validation and hyperparameter tuning in your analysis. 
 
 
 ``` r
