@@ -1,0 +1,448 @@
+---
+title: "Logistic Regression"
+author: "Daniel Fuller"
+date: "2024-09-23"
+output:
+      html_document:
+        keep_md: true
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(sjPlot)
+library(finalfit)
+library(knitr)
+library(gtsummary)
+library(mlbench)
+library(vip)
+library(rsample)
+library(tune)
+library(recipes)
+library(yardstick)
+library(parsnip)
+library(glmnet)
+library(themis)
+library(microbenchmark)
+```
+
+# Logistic Regression - The Machine Learning Way
+
+## Research question and data
+
+We are using an imputed (ie. no missing data) version of the CanPath student dataset [https://canpath.ca/student-dataset/](https://canpath.ca/student-dataset/). The nice thing about this dataset is that it's pretty big in terms of sample size, has lots of variables, and we can use it for free. 
+
+Our research question is:  
+
+- **Can we develop a model that will predict type 2 diabetes**
+
+### Reading in data
+
+Here are reading in data and getting organized to run our models. 
+
+```{r}
+data <- read_csv("canpath_data.csv")
+
+data <- data %>% mutate_at(3, factor)
+data <- data %>% mutate_at(5:6, factor)
+data <- data %>% mutate_at(8:12, factor)
+data <- data %>% mutate_at(15:81, factor)
+data <- data %>% mutate_at(83:93, factor)
+
+table(data$DIS_DIAB_EVER)
+
+data <- data %>%
+	mutate(diabetes = case_when(
+		DIS_DIAB_EVER == 0 ~ 0,
+		DIS_DIAB_EVER == 1 ~ 1,
+		DIS_DIAB_EVER == 2 ~ 0)) %>%
+		mutate(diabetes = as.factor(diabetes))
+
+table(data$DIS_DIAB_EVER, data$diabetes)
+
+data$DIS_DIAB_EVER <- NULL
+```
+
+#### Simplifying the data
+
+Here I'm simplifying the data because the models take a long time to run and for teaching purposes we need models that run in a reasonable amount of time. 
+
+```{r}
+data_small <- select(data, diabetes, SDC_AGE_CALC, SDC_EDU_LEVEL, PM_BMI_SR, HS_GEN_HEALTH, WRK_FULL_TIME, SMK_CIG_EVER, SDC_INCOME, PA_TOTAL_SHORT, HS_ROUTINE_VISIT_EVER, PSE_ADULT_WRK_DURATION, DIS_RESP_SLEEP_APNEA_EVER, SDC_EDU_LEVEL_AGE, SDC_GENDER)
+```
+
+## Machine Learning - Logistic Regression 
+
+In a machine learning approach, in general, our interest is less on the specific associations we see between individual variables and the outcome and more on the overall performance of the model in terms of predicting the outcome. You might remember this like AIC, BIC, or -2Log-Likelihood, or Pseudo-R2 for model fit in logistic regression. 
+
+### Resampling - Data Split approach (Part 1)
+
+More machine learning we need a way to split the data into a training set and a test set. There are a few different approaches too this. Here we are going to use an 70/30 split with 70% of the data going to training and 30 going to testing. This is sort of an older way to split data and I would say that a k-fold cross validation is probably more in line with modern practice. We will test this out later.  
+
+```{r}
+# Fix the random numbers by setting the seed 
+# This enables the analysis to be reproducible when random numbers are used 
+set.seed(10)
+
+data_split <- initial_split(data_small, prop = 0.70, strata = diabetes)
+
+# Create data frames for the two sets:
+train_data <- training(data_split)
+table(train_data$diabetes)
+
+test_data  <- testing(data_split)
+table(test_data$diabetes)
+```
+
+Now we have split the data, we want to create the model for the training data and save it so it can be applied to the testing set. This is basically exactly what we did before. __Note that we only run the model on the training data__ Not all of the data like would in a traditional logistic regression. Here we won't get the exact same result as our original logistic regression because we don't have the same data. We expect there will be some variation but that the results should relatively similar. 
+
+**Another note. I've added variables to this model compared to our previous model. The previous model did a very poor job of predicting diabetes overall. In fact, it had a sensitivity of ZERO! Meaning it did not predict a single case of diabetes in the test set. That's bad so I've added variables to try and increase our prediction ability. This is a key difference in typical etiologic epidemiology versus machine learning focused analyses. 
+
+### Running the regression
+
+```{r}
+table(data$diabetes)
+
+logistic_model <- logistic_reg() %>%
+        set_engine("glm") %>%
+        set_mode("classification") %>% 
+        fit(diabetes ~ ., data = train_data)
+```
+
+### Test the trained model
+
+Once we `train the model` we want to understand how well our trained model works on new data the model has not seen. This is where the testing data comes in. We can use the `predict` feature for this. What we are doing here is predicting if someone has diabetes (yes/no) from the model we trained using the training data, on the testing data. We had 4293 observations in the training with 4077 people with on diabetes and 216 people with diabetes. Much of this example comes from [https://medium.com/the-researchers-guide/modelling-binary-logistic-regression-using-tidymodels-library-in-r-part-1-c1bdce0ac055](https://medium.com/the-researchers-guide/modelling-binary-logistic-regression-using-tidymodels-library-in-r-part-1-c1bdce0ac055)
+
+The code below outputs the predict class `diabetes (yes/no)` for the test data. 
+
+```{r}
+pred_class <- predict(logistic_model,
+                      new_data = test_data,
+                      type = "class")
+table(pred_class$.pred_class)
+table(test_data$diabetes)
+```
+
+Our model predicts that we have 4206 people with diabetes and 4 people with diabetes. Not looking good for our model! 
+
+Now we want to generated the predicted probabilities for the model. That is, how well does our model think it does for each person. 
+
+```{r}
+pred_prob <- predict(logistic_model,
+                      new_data = test_data,
+                      type = "prob")
+head(pred_prob)
+```
+
+This is not very informative in terms of results but we will discuss this more later. 
+
+Now we want to combine all of our results into one dataframe and just do a quick check. 
+
+```{r}
+diabetes_results <- test_data %>%
+  select(diabetes) %>%
+  bind_cols(pred_class, pred_prob)
+
+head(diabetes_results)
+```
+
+Here we can see the first 6 rows of data data all negative for diabetes and are predicted as negative. The model is very confident in these predictions, with over 90% negative prediction in all six observations. 
+
+### Model evaluation
+
+There are a number of different methods we must use to evaluate machine learning models. We will walk through those. 
+
+#### Confusion Matrix
+
+We can generate a confusion matrix by using the `conf_mat()` function by supplying the final data frame (`diabetes_results`), the truth column `diabetes` and predicted class `.pred_class` in the estimate attribute.
+
+A confusion matrix is sort of a 2x2 table with the true values on one side and predicted values in another column. If we look on the diagonal we see when the model correctly predicts the values `yes/no` and off diagonal is when the model does not predict the correct value. So this model correctly predicts that 4075 cases of diabetes and incorrectly predicts that 212 people do not have diabetes when they do have it. The model correctly predicts 4 cases of diabetes. It also incorrectly predicts that two people who do not have diabetes do have diabetes. 
+
+```{r}
+conf_mat(diabetes_results, truth = diabetes,
+         estimate = .pred_class)
+```
+
+#### Accuracy
+
+We can calculate the classification accuracy by using the `accuracy()` function by supplying the final data frame `diabetes_results`, the truth column `diabetes` and predicted class `.pred_class` in the estimate attribute. The model classification accuracy on test dataset is about ~94%. This looks good but it's a bit of fake result as we will see later. 
+
+```{r}
+accuracy(diabetes_results, truth = diabetes,
+         estimate = .pred_class)
+```
+
+#### Sensitivity
+
+The sensitivity (also known as __Recall__) of a classifier is the ratio between what was correctly identified as positive (True Positives) and all positives (False Negative + True Positive).
+
+__Sensitivity = TP / FN + TP__
+
+The sensitivity value is 1.0 indicating that we are able to correctly detect 100% of the positive values. 
+
+```{r}
+sens(diabetes_results, truth = diabetes,
+    estimate = .pred_class)
+```
+
+#### Specificity
+
+Specificity of a classifier is the ratio between what was classified as negative (True Negatives) and all negative values (False Positive + True Native)
+
+__Specificity = TN / FP + TN__
+
+The specificity value is 0.004. Meaning that we correctly classify 0.4% of the negative values, which is pretty terrible. 
+
+```{r}
+spec(diabetes_results, truth = diabetes,
+    estimate = .pred_class)
+```
+
+#### Precision
+
+What percent of values are correctly classified as positive (True Positives) out of all positives (True Positive + False Positive)?
+
+__Precision = TP / TP + FP__
+
+The precision is 0.94, meaning we identify 81.8% of true positives compared to all positives. 
+
+```{r}
+precision(diabetes_results, truth = diabetes,
+    estimate = .pred_class)
+```
+
+#### F-Score
+
+F-score is the mean of precision and sensitivity. The value ranges from 1 (the best score) and 0 (the worst score). F-score gives us the balance between precision and sensitivity. The F1 score is about 0.97, which indicates that the trained model has a classification strength of 97%.
+
+```{r}
+f_meas(diabetes_results, truth = diabetes,
+       estimate = .pred_class)
+```
+
+#### ROC Curve
+
+The ROC curve is plotted with `sensitivity` against `1 - Specificity`, where `sensitivity` is on the y-axis and `1 - Specificity` is on the x-axis. A line is drawn diagonally to denote 50–50 partitioning of the graph. If the curve is more close to the line, lower the performance of the classifier, which is no better than a mere random guess.
+
+You can generate a ROC Curve using the `roc_curve()` function where you need to supply the truth column `diabetes` and predicted probabilities for the positive class `.pred_pos`.
+
+Our model has got a ROC-AUC score of 0.227 indicating a good model that cannot distinguish between patients with diabetes and no diabetes.
+
+```{r}
+roc_auc(diabetes_results,
+        truth = diabetes,
+        .pred_0)
+
+roc_curve <- diabetes_results %>%
+  roc_curve(truth = diabetes, .pred_0) %>%
+  autoplot()
+
+plot(roc_curve)
+```
+
+#### All the metrics 
+
+We can produce all of the metrics using the `metric_set` function. 
+
+```{r}
+metrics <- metric_set(accuracy, sens, spec, precision, recall, f_meas)
+
+all_metrics_lr <- metrics(diabetes_results,
+               truth = diabetes,
+               estimate = .pred_class)
+               
+kable(all_metrics_lr)
+```
+
+#### Feature Importance
+
+Feature importance is the one way that ML models examine which variables are important to the predictions overall. It's not super common to see, except for people like Epi folks who think about specific associations between variables. 
+
+```{r}
+coeff <- tidy(logistic_model) %>% 
+  arrange(desc(abs(estimate))) %>% 
+  filter(abs(estimate) > 0.5)
+
+kable(coeff)
+```
+
+#### Plot of feature importance
+
+```{r}
+ggplot(coeff, aes(x = term, y = estimate, fill = term)) + geom_col() + coord_flip()
+```
+
+#### Model interpretation
+
+So now we have to interpret the model. General guidelines to think about the bias variance trade off and weather our model performs well. Based on the evaluation metrics how do we fell about this model? 
+Typically in ML types of problems a model with less than 80-90% accuracy is consider ok, but it depends a bit on the problem. Our model has an accuracy of 95%... maybe that's good. HOWEVER, when we look at the sensitivity it's 1 and the specificity is 0.4%. A sensitivity of 1 (perfect) is suspect and our specificity is very very bad.
+
+Overall, this model is not very good. We don't have a sufficient number of features (variables) to do a good job with prediction. We have a high bias, our model underfits the data. The variance is also high. 
+
+### Up-Sampling
+
+OK. So our model is terrible. There are a number of reasons for this that we are going to explore now. These are standard machine learning explorations that we would normally do as part of machine learning analysis workflow. First, we are going to explore up-sampling. One of the main problems with the diabetes data we have is the prevalence of diabetes is relatively low in the dataset. This is good normally in biostatistics approaches as we want the OR to approximate the RR in a case control study. BUT that's terrible for prediction. 
+
+One thing that we can do is up-scale the lowest class (or classes) or the outcome variable. There are a bunch of different methods to do this and we are using the `themis` package [https://themis.tidymodels.org/reference/index.html](https://themis.tidymodels.org/reference/index.html). Here we are using the `step_upsample()` function. We only want to use the up scaling methods on the training set. We don't use it on the test set because that would create a false model performance. 
+
+#### Up-sampling Example
+
+```{r}
+### Showing the distribution of diabetes (yes/no) in the real data
+table(train_data$diabetes)
+
+ggplot(train_data) + 
+    geom_bar(aes(diabetes))
+
+### Creating a recipe were we upsample the diabetes yes category to be 50% of the diabetes no category. This is an arbitrary number and you will need to play with this.
+
+diabetes_rec_oversamp <- 
+  recipe(diabetes ~ ., data = train_data) %>%
+  step_smotenc(diabetes, over_ratio = 0.9) %>%
+  step_unknown() %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>% ### Mean center and standardize (z-score) the numeric predictors
+  step_zv(all_predictors()) 
+
+### Visualization of the 30% ratio
+recipe(~., train_data) %>%
+  step_upsample(diabetes, over_ratio = 0.9) %>%
+  prep() %>%
+  bake(new_data = NULL) %>%
+  ggplot(aes(diabetes)) +
+  geom_bar()
+```
+
+Here we upscale the `diabetes-Yes` category to 50% of the of the `diabetes-No` category. The figures show the differences but we go from 1514 cases of diabetes in the training set to over ~12000 cases of diabetes. 
+
+**Up-scaling regression**
+
+Setup the recipe and metrics. Here we are specifying the model we want to use. 
+
+```{r}
+logistic_m <- logistic_reg(
+                mode = "classification",
+                engine = "glm"
+              )
+```
+
+Logistic regression results based on up-scaling. Here we setup the workflow. A workflow must includ the following
+
+* A Recipe `add_recipe` which is how we tell the workflow to process the data. 
+* A Model `add_model` which specifies the model paramaters
+
+Once we save the workflow we can run the same model in different ways. More on this later. 
+
+```{r}
+diabetes_wflow_oversamp <- 
+  workflow() %>% 
+  add_model(logistic_m) %>% 
+  add_recipe(diabetes_rec_oversamp)
+
+diabetes_wflow_oversamp
+```
+
+Now we will actually fit the model to the data using the recipe and `fit` command. 
+
+```{r, messages = FALSE}
+diabetes_fit_oversamp <- 
+  diabetes_wflow_oversamp %>% 
+  fit(data = train_data)
+```
+
+```{r}
+diabetes_fit_oversamp %>% 
+  extract_fit_parsnip() %>% 
+  tidy()
+
+diabetes_aug_oversamp <- 
+  augment(diabetes_fit_oversamp, test_data)
+
+diabetes_fit_oversamp_all_metrics <- metrics(diabetes_aug_oversamp,
+               truth = diabetes,
+               estimate = .pred_class)
+               
+kable(diabetes_fit_oversamp_all_metrics)
+```
+
+Here we have dramatically improved our specificity from 0.004 to 0.28. Overall, our accuracy and other metrics have gone down... which is good. This model is much better and less suspect than our previous model. Our up-sampling has done well here. We could test more up-sampling but you get the idea here. 
+
+```{r}
+kable(all_metrics_lr)
+```
+
+### Resampling (part 2)
+
+So we know that the up-scaling worked well to improve the model. Another thing we always want to test with an ML model is using a different type of resampling (validation) approach. Originally, we used a 70/30 split in the data, which is not the optimal approach. A better general approach is k-fold cross validation. This approach is very common. There is some discussion of a bunch of other approaches here [https://www.stepbystepdatascience.com/ml-with-tidymodels](https://www.stepbystepdatascience.com/ml-with-tidymodels).
+
+Here we will use our new up-scaled data and apply 10 fold cross-validation approach. We have already set the seed for the analysis in line 105. Setting that will make sure that we get a reproducible result. This resmapling approach 
+
+![](https://static.wixstatic.com/media/ea0077_8bf9cf19b5ce4f24816ac8d7a1da00fd~mv2.png/v1/fill/w_804,h_452,al_c,q_90,usm_0.66_1.00_0.01,enc_auto/Resampling_PNG.png)
+
+```{r, messages = FALSE}
+folds <- vfold_cv(train_data, v = 5) ## normally you would do at least 10 folds. Just doing 5 because it's faster.
+
+diabetes_fit_kfold <- 
+      diabetes_wflow_oversamp %>% 
+      fit_resamples(folds)
+
+diabetes_fit_kfold
+
+collect_metrics(diabetes_fit_kfold)
+
+accuracy(diabetes_aug_oversamp, truth = diabetes,
+         estimate = .pred_class)
+```
+
+Note that our accuracy and other metrics did not change. BUT now because we did a cross-validation, meaning we replicated the analysis many times on sub-sets of the data, we can estimate a standard error for our metrics. This is another big advantage of using bootstraps or cross-validation approaches. We get some idea of potential error in our metrics. 
+
+### Hyperparamater specification 
+
+Depending on the ML model there are different hyperparameters we might want to test. There are a different number of hyperparameters depending on the model. For logistic regression we can use ridge, lasso, and elastic net penalizations to see how model performance changes. These appraoches are important because they deal with lots of variables in the model and account for having too many variables in the model in different ways. Penalized logistic regression imposes a penalty to the logistic model for having too many variables. This results in shrinking the coefficients of the less contributive variables toward zero. This is also known as regularization. The most commonly used penalized regression include:
+
+* Ridge regression: variables with minor contribution have their coefficients close to zero. However, all the variables are incorporated in the model. This is useful when all variables need to be incorporated in the model according to domain knowledge.
+* Lasso regression: the coefficients of some less contributive variables are forced to be exactly zero. Only the most significant variables are kept in the final model.
+* Elastic net regression: the combination of ridge and lasso regression. It shrinks some coefficients toward zero (like ridge regression) and set some coefficients to exactly zero (like lasso regression)
+
+Here we are going to use the same setup as before with our up-sampled and 10 fold cross validation approach and add in the hyperparameter testing. We will go from using the `glm` engine in R to the `glmnet` package for estimates. From the package description
+
+> Extremely efficient procedures for fitting the entire lasso or elastic-net regularization path for linear regression, logistic and multinomial regression models, Poisson regression, Cox model, multiple-response Gaussian, and the grouped multinomial regression; see [https://doi.org/10.18637/jss.v033.i01](https://doi.org/10.18637/jss.v033.i01) and [https://doi.org/10.18637/jss.v039.i05](https://doi.org/10.18637/jss.v039.i05). 
+
+```{r, messages = FALSE, warning = FALSE}
+logistic_m_mixture <- logistic_reg(
+                mode = "classification",
+                engine = "glmnet",
+                penalty = tune(),
+                mixture = tune()
+              )
+
+diabetes_wflow_oversamp_tune <- workflow() %>% 
+          add_model(logistic_m_mixture) %>% 
+          add_recipe(diabetes_rec_oversamp) %>% 
+          tune_grid(resamples = folds,
+                    control = control_grid(save_pred = TRUE, 
+                                            verbose = FALSE)) ## Edit for running live
+
+collect_metrics(diabetes_wflow_oversamp_tune) 
+
+show_best(diabetes_wflow_oversamp_tune, metric='accuracy', n=5)  # only show the results for the best 5 models
+
+autoplot(diabetes_wflow_oversamp_tune, metric = 'accuracy') 
+```
+
+Here we can see that based on tuning the model accuracy ranges from 0.904 to 0.945. That's a 4% improvement! I have seen hyperparameter tuning improve models by more than 10% so this is a reasonable improvement. We also get the specific values for the penalty and mixutre that we can run in a final model. 
+### Benchmarks 
+
+We can check how long each model took to run using the `microbenchmark` package. These are nanoseconds, so there is no real difference here but this is a simple model with small data. 
+
+```{r, warning = FALSE}
+microbenchmark(logistic_model, diabetes_wflow_oversamp, diabetes_wflow_oversamp_tune)
+```
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+
