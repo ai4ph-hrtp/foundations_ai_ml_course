@@ -31,4 +31,22 @@ During the course, learners will gain an understanding of
 
 # Content
 
+
 # Code
+
+Code examples for the assignments are available in the [Data Analysis](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/tree/main/Data%20Analysis) page. You can also find them below
+
+## Assignment 1
+
+### [Assignment 1 Description](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Assignments/Assignment_1.md)
+
+1. Logistic Regression Example 
+    * [Nicely rendred .md file](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/logistic_regression.md) 
+    * [Actually .Rmd code](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/logistic_regression.Rmd)
+2. Random Forest Example 
+    * [Nicely rendred .md file](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/random_forest.md) 
+    * [Actually .Rmd code](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/random_forest.Rmd)
+
+## Assignment 2
+
+### Assignment 2 Description - Coming Soon
