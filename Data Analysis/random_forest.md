@@ -274,29 +274,29 @@ set.seed(10)
 
 #### Cross Validation Split
 cv_split <- initial_validation_split(data, 
-                            strata = gen_health, 
+                            strata = diabetes, 
                             prop = c(0.70, 0.20))
 
 # Create data frames for the two sets:
 train_data <- training(cv_split)
-table(train_data$gen_health)
+table(train_data$diabetes)
 ```
 
 ```
 ## 
-##     1     2     3     4 
-##  2946  8948 12028  4908
+##    No   Yes 
+## 26640  2190
 ```
 
 ``` r
 test_data  <- testing(cv_split)
-table(test_data$gen_health)
+table(test_data$diabetes)
 ```
 
 ```
 ## 
-##    1    2    3    4 
-##  418 1257 1747  697
+##   No  Yes 
+## 3813  306
 ```
 
 ### Model 
@@ -350,7 +350,7 @@ Now we can add roles to this recipe. We can use the `update_role()` function to 
 
 ``` r
 health_recipe <- 
-  recipe(gen_health ~ ., data = train_data) %>% 
+  recipe(diabetes ~ ., data = train_data) %>% 
   step_zv(all_predictors()) ### Remove columns from the data when the training set data have a single value. Zero variance predictor
 ```
 
@@ -401,29 +401,34 @@ set.seed(100)
 folds <- vfold_cv(train_data, v = 10) 
 
 rf_grid <- grid_regular(
-              mtry(range = c(5, 30)),
-              min_n(range = c(5, 50)),
-              levels = 5  
+              mtry(range = c(2, 30)),
+              min_n(range = c(2, 50)),
+              levels = 4  
             )
 
 rf_grid
 ```
 
 ```
-## # A tibble: 25 × 2
+## # A tibble: 16 × 2
 ##     mtry min_n
 ##    <int> <int>
-##  1     5     5
-##  2    11     5
-##  3    17     5
-##  4    23     5
-##  5    30     5
-##  6     5    16
-##  7    11    16
-##  8    17    16
-##  9    23    16
-## 10    30    16
-## # ℹ 15 more rows
+##  1     2     2
+##  2    11     2
+##  3    20     2
+##  4    30     2
+##  5     2    18
+##  6    11    18
+##  7    20    18
+##  8    30    18
+##  9     2    34
+## 10    11    34
+## 11    20    34
+## 12    30    34
+## 13     2    50
+## 14    11    50
+## 15    20    50
+## 16    30    50
 ```
 
 ``` r
@@ -443,16 +448,16 @@ health_fit
 ## # A tibble: 10 × 5
 ##    splits               id     .metrics          .notes           .predictions
 ##    <list>               <chr>  <list>            <list>           <list>      
-##  1 <split [25947/2883]> Fold01 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  2 <split [25947/2883]> Fold02 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  3 <split [25947/2883]> Fold03 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  4 <split [25947/2883]> Fold04 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  5 <split [25947/2883]> Fold05 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  6 <split [25947/2883]> Fold06 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  7 <split [25947/2883]> Fold07 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  8 <split [25947/2883]> Fold08 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-##  9 <split [25947/2883]> Fold09 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>    
-## 10 <split [25947/2883]> Fold10 <tibble [75 × 6]> <tibble [0 × 4]> <tibble>
+##  1 <split [25947/2883]> Fold01 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  2 <split [25947/2883]> Fold02 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  3 <split [25947/2883]> Fold03 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  4 <split [25947/2883]> Fold04 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  5 <split [25947/2883]> Fold05 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  6 <split [25947/2883]> Fold06 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  7 <split [25947/2883]> Fold07 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  8 <split [25947/2883]> Fold08 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+##  9 <split [25947/2883]> Fold09 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>    
+## 10 <split [25947/2883]> Fold10 <tibble [48 × 6]> <tibble [0 × 4]> <tibble>
 ```
 
 #### Plot of the results. 
@@ -516,7 +521,7 @@ rf_best
 ## # A tibble: 1 × 3
 ##    mtry min_n .config         
 ##   <int> <int> <chr>           
-## 1    30     5 pre0_mod21_post0
+## 1    20     2 pre0_mod09_post0
 ```
 
 ``` r
@@ -537,17 +542,15 @@ Here is the confusion matrix for all 5 of the folds.
 
 
 ``` r
-conf_mat(rf_auc_fit, truth = gen_health,
+conf_mat(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
 ```
 ##           Truth
-## Prediction    1    2    3    4
-##          1  750  268  133   47
-##          2 1274 4059 2360  708
-##          3  902 4518 9235 3570
-##          4   20  103  300  583
+## Prediction    No   Yes
+##        No  26618  2068
+##        Yes    22   122
 ```
 
 #### Accuracy
@@ -556,7 +559,7 @@ We can calculate the classification accuracy by using the `accuracy()` function 
 
 
 ``` r
-accuracy(rf_auc_fit, truth = gen_health,
+accuracy(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -564,14 +567,14 @@ accuracy(rf_auc_fit, truth = gen_health,
 ## # A tibble: 1 × 3
 ##   .metric  .estimator .estimate
 ##   <chr>    <chr>          <dbl>
-## 1 accuracy multiclass     0.507
+## 1 accuracy binary         0.928
 ```
 
 #### Sensitivity
 
 
 ``` r
-sens(rf_auc_fit, truth = gen_health,
+sens(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -579,14 +582,14 @@ sens(rf_auc_fit, truth = gen_health,
 ## # A tibble: 1 × 3
 ##   .metric .estimator .estimate
 ##   <chr>   <chr>          <dbl>
-## 1 sens    macro          0.399
+## 1 sens    binary         0.999
 ```
 
 #### Specificity
 
 
 ``` r
-spec(rf_auc_fit, truth = gen_health,
+spec(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -594,14 +597,14 @@ spec(rf_auc_fit, truth = gen_health,
 ## # A tibble: 1 × 3
 ##   .metric .estimator .estimate
 ##   <chr>   <chr>          <dbl>
-## 1 spec    macro          0.803
+## 1 spec    binary        0.0557
 ```
 
 #### F1 Score
 
 
 ``` r
-f_meas(rf_auc_fit, truth = gen_health,
+f_meas(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -609,7 +612,7 @@ f_meas(rf_auc_fit, truth = gen_health,
 ## # A tibble: 1 × 3
 ##   .metric .estimator .estimate
 ##   <chr>   <chr>          <dbl>
-## 1 f_meas  macro          0.409
+## 1 f_meas  binary         0.962
 ```
 
 ## Final model
@@ -630,9 +633,9 @@ final_model
 ## Random Forest Model Specification (classification)
 ## 
 ## Main Arguments:
-##   mtry = 30
+##   mtry = 20
 ##   trees = 100
-##   min_n = 5
+##   min_n = 2
 ## 
 ## Engine-Specific Arguments:
 ##   num.threads = cores
@@ -648,7 +651,7 @@ tree_prep <- prep(health_recipe)
 
 final_model %>%
   set_engine("ranger", importance = "permutation") %>%
-  fit(gen_health ~ .,
+  fit(diabetes ~ .,
     data = juice(tree_prep)) %>%
   vip(geom = "point")
 ```
@@ -674,9 +677,9 @@ final_results %>%
 ## # A tibble: 3 × 4
 ##   .metric     .estimator .estimate .config        
 ##   <chr>       <chr>          <dbl> <chr>          
-## 1 accuracy    multiclass     0.503 pre0_mod0_post0
-## 2 roc_auc     hand_till      0.738 pre0_mod0_post0
-## 3 brier_class multiclass     0.306 pre0_mod0_post0
+## 1 accuracy    binary        0.930  pre0_mod0_post0
+## 2 roc_auc     binary        0.792  pre0_mod0_post0
+## 3 brier_class binary        0.0595 pre0_mod0_post0
 ```
 
 ## Session Info

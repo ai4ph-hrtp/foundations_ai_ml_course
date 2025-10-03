@@ -129,15 +129,15 @@ set.seed(10)
 
 #### Cross Validation Split
 cv_split <- initial_validation_split(data, 
-                            strata = gen_health, 
+                            strata = diabetes, 
                             prop = c(0.70, 0.20))
 
 # Create data frames for the two sets:
 train_data <- training(cv_split)
-table(train_data$gen_health)
+table(train_data$diabetes)
 
 test_data  <- testing(cv_split)
-table(test_data$gen_health)
+table(test_data$diabetes)
 ```
 
 ### Model 
@@ -184,7 +184,7 @@ Now we can add roles to this recipe. We can use the `update_role()` function to 
 
 ```{r}
 health_recipe <- 
-  recipe(gen_health ~ ., data = train_data) %>% 
+  recipe(diabetes ~ ., data = train_data) %>% 
   step_zv(all_predictors()) ### Remove columns from the data when the training set data have a single value. Zero variance predictor
 ```
 
@@ -209,9 +209,9 @@ set.seed(100)
 folds <- vfold_cv(train_data, v = 10) 
 
 rf_grid <- grid_regular(
-              mtry(range = c(5, 30)),
-              min_n(range = c(5, 50)),
-              levels = 5  
+              mtry(range = c(2, 30)),
+              min_n(range = c(2, 50)),
+              levels = 4  
             )
 
 rf_grid
@@ -284,7 +284,7 @@ A confusion matrix is sort of a 2x2 (or n*n table for multiclass problems) table
 Here is the confusion matrix for all 5 of the folds. 
 
 ```{r}
-conf_mat(rf_auc_fit, truth = gen_health,
+conf_mat(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -293,28 +293,28 @@ conf_mat(rf_auc_fit, truth = gen_health,
 We can calculate the classification accuracy by using the `accuracy()` function by supplying the final data frame `rf_auc_fit`, the truth column `gen_health` and predicted class `.pred_class` in the estimate attribute. 
 
 ```{r}
-accuracy(rf_auc_fit, truth = gen_health,
+accuracy(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
 #### Sensitivity
 
 ```{r}
-sens(rf_auc_fit, truth = gen_health,
+sens(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
 #### Specificity
 
 ```{r}
-spec(rf_auc_fit, truth = gen_health,
+spec(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
 #### F1 Score
 
 ```{r}
-f_meas(rf_auc_fit, truth = gen_health,
+f_meas(rf_auc_fit, truth = diabetes,
          estimate = .pred_class)
 ```
 
@@ -338,7 +338,7 @@ tree_prep <- prep(health_recipe)
 
 final_model %>%
   set_engine("ranger", importance = "permutation") %>%
-  fit(gen_health ~ .,
+  fit(diabetes ~ .,
     data = juice(tree_prep)) %>%
   vip(geom = "point")
 ```
