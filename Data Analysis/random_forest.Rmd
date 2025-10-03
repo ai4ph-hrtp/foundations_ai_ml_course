@@ -1,0 +1,365 @@
+---
+title: "Random Forest"
+author: "Daniel Fuller"
+output:
+      html_document:
+        keep_md: true
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(sjPlot)
+library(C50)
+library(finalfit)
+library(knitr)
+library(gtsummary)
+library(mlbench)
+library(vip)
+library(rsample)
+library(rpart.plot)
+library(tune)
+library(recipes)
+library(yardstick)
+library(parsnip)
+library(glmnet)
+library(ranger)
+library(themis)
+library(microbenchmark)
+```
+
+# Random Forest
+
+## Research question and data
+
+We are using an imputed (ie. no missing data) version of the CanPath student dataset [https://canpath.ca/student-dataset/](https://canpath.ca/student-dataset/). The nice thing about this dataset is that it's pretty big in terms of sample size, has lots of variables, and we can use it for free. 
+Our research question is:  
+
+- **Can we develop a model that will predict general health status**
+
+### Reading in data
+
+Here are reading in data and getting organized to run our models. 
+
+```{r}
+data <- read_csv("canpath_data.csv")
+
+data <- data %>% mutate_at(3, factor)
+data <- data %>% mutate_at(5:6, factor)
+data <- data %>% mutate_at(8:12, factor)
+data <- data %>% mutate_at(15:81, factor)
+data <- data %>% mutate_at(83:93, factor)
+
+data$ID <- NULL
+data$ADM_STUDY_ID <- NULL
+```
+
+#### Diabetes
+
+Preparing diabetes data
+
+```{r}
+table(data$DIS_DIAB_EVER)
+
+data <- data %>%
+	mutate(diabetes = case_when(
+		DIS_DIAB_EVER == 0 ~ "No",
+		DIS_DIAB_EVER == 1 ~ "Yes",
+		DIS_DIAB_EVER == 2 ~ "No")) %>%
+		mutate(diabetes = as.factor(diabetes))
+
+table(data$DIS_DIAB_EVER, data$diabetes)
+
+data$DIS_DIAB_EVER <- NULL
+```
+
+#### General Health
+
+```{r}
+table(data$HS_GEN_HEALTH)
+
+### Combining levels 1 and 2 just to have enough sample. We won't do upscaling for this example
+data <- data %>%
+	mutate(gen_health = case_when(
+		HS_GEN_HEALTH == 1 ~ 1,
+		HS_GEN_HEALTH == 2 ~ 1,
+		HS_GEN_HEALTH == 3 ~ 2,
+		HS_GEN_HEALTH == 4 ~ 3,	
+		HS_GEN_HEALTH == 5 ~ 4)) %>%
+		mutate(gen_health = as.factor(gen_health))
+
+table(data$HS_GEN_HEALTH, data$gen_health)
+
+data$HS_GEN_HEALTH <- NULL
+```
+
+#### Simplifying the data
+
+Here I'm simplifying the data because the models take a long time to run and for teaching purposes we need models that run in a reasonable amount of time. 
+
+```{r}
+data_small <- select(data, diabetes, gen_health, SDC_AGE_CALC, SDC_EDU_LEVEL, PM_BMI_SR, WRK_FULL_TIME, SMK_CIG_EVER, SDC_INCOME, PA_TOTAL_SHORT, HS_ROUTINE_VISIT_EVER, PSE_ADULT_WRK_DURATION, DIS_RESP_SLEEP_APNEA_EVER, SDC_EDU_LEVEL_AGE, SDC_GENDER)
+```
+
+### Decision tree
+
+Good walk through of decision tree and how to visualize the tree [here](https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/08-tree-based-methods.html)
+
+Same as usual with tidymodels we are going to prepare the model and the recipe in order to run the analysis. Here we are skipping the recipe part just to show the CART approach before moving into Random Forest.
+
+### Random Forest
+
+Random forests or random decision forests is an ensemble learning method for classification, regression and other tasks that works by creating a multitude of decision trees during training. For classification tasks, the output of the random forest is the class selected by most trees. It is one of most commonly used methods for physical activity classification... though a bit old now. [https://en.wikipedia.org/wiki/Random_forest](https://en.wikipedia.org/wiki/Random_forest)
+
+We will use the Tidymodels framework for model fitting. Good tutorials for Tidymodels are below
+
+* [https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/](https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/)
+* [https://lsinks.github.io/posts/2023-04-10-tidymodels/tidymodels_tutorial.html](https://lsinks.github.io/posts/2023-04-10-tidymodels/tidymodels_tutorial.html)
+
+We will use of a 5 fold cross validation and leave 2 test sets. Cross validation works as per the image below. In this example we will not finalize the analysis and run on the test set, just for the sake of time. 
+
+![](https://static.wixstatic.com/media/ea0077_8bf9cf19b5ce4f24816ac8d7a1da00fd~mv2.png/v1/fill/w_804,h_452,al_c,q_90,usm_0.66_1.00_0.01,enc_auto/Resampling_PNG.png) 
+
+
+```{r}
+# Fix the random numbers by setting the seed 
+# This enables the analysis to be reproducible when random numbers are used 
+set.seed(10)
+
+#### Cross Validation Split
+cv_split <- initial_validation_split(data, 
+                            strata = gen_health, 
+                            prop = c(0.70, 0.20))
+
+# Create data frames for the two sets:
+train_data <- training(cv_split)
+table(train_data$gen_health)
+
+test_data  <- testing(cv_split)
+table(test_data$gen_health)
+```
+
+### Model 
+
+Here we use the tidy models to setup a model using `ranger` and `classification` and we call the specific model we want to fit. `ranger` is the default package but there are additional engines you could use in [tidymodels](https://parsnip.tidymodels.org/reference/rand_forest.html)
+
+* ranger
+* aorsf
+* h2o
+* partykit
+* randomForest
+* spark
+
+I'm fixing mtry = 5, min_n = 10, and tress = 10 just to make the model run more efficiently in class. These are hyperparameters for your model. 
+
+* __mtry__: An integer for the number of predictors that will be randomly sampled at each split when creating the tree models.
+* __trees__: An integer for the number of trees contained in the ensemble.
+* __min_n__: An integer for the minimum number of data points in a node that are required for the node to be split further.
+
+Normally you want to tune these to find the optimal values. This optimization process can take a long time and is best done using parallel processing. More information about model tuning using tidymodels in [this tutorial](https://juliasilge.com/blog/sf-trees-random-tuning/).
+
+```{r}
+### Set the number of cores on your computer
+cores <- parallel::detectCores()
+cores
+```
+
+Save the random forest model object. We set `num.threads = cores` because `ranger` will do parrallel processing so the modes will run more quickly. 
+
+```{r}
+rf_model <- rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% 
+              set_engine("ranger", num.threads = cores) %>% 
+              set_mode("classification")
+```
+
+#### Recipe
+
+The recipe() function as we used it here has two arguments
+
+1. A formula. Any variable on the left-hand side of the tilde (~) is considered the model outcome (here, activity). On the right-hand side of the tilde are the predictors. Variables may be listed by name, or you can use the dot (.) to indicate all other variables as predictors.
+2. The data. A recipe is associated with the data set used to create the model. This will typically be the training set, so `data = train_data` here. Naming a data set doesn’t actually change the data itself; it is only used to catalog the names of the variables and their types, like factors, integers, dates, etc.
+
+Now we can add roles to this recipe. We can use the `update_role()` function to let recipes know that `id` is a variable with a custom role that we called "ID" (a role can have any character value). Whereas our formula included all variables in the training set other than activity as predictors (that's what the `.` does), this tells the recipe to keep these two variables but not use them as either outcomes or predictors.
+
+```{r}
+health_recipe <- 
+  recipe(gen_health ~ ., data = train_data) %>% 
+  step_zv(all_predictors()) ### Remove columns from the data when the training set data have a single value. Zero variance predictor
+```
+
+#### Create a workflow
+
+A workflow connects our recipe with out model. The workflow let's us setup the models without actually have run things over and over again. This is helpful because as you will sometimes models can take a long time to run. 
+
+```{r}
+health_workflow <- 
+        workflow() %>% 
+        add_model(rf_model) %>% 
+        add_recipe(health_recipe)
+
+health_workflow
+```
+
+### Fit a model 
+
+```{r}
+set.seed(100)
+
+folds <- vfold_cv(train_data, v = 10) 
+
+rf_grid <- grid_regular(
+              mtry(range = c(5, 30)),
+              min_n(range = c(5, 50)),
+              levels = 5  
+            )
+
+rf_grid
+
+
+health_fit <- tune_grid(
+                health_workflow,
+                resamples = folds,
+                grid = rf_grid, 
+                control = control_resamples(save_pred = TRUE, 
+                                                  verbose = FALSE))
+
+health_fit
+```
+
+#### Plot of the results. 
+
+Default here is to run 3 iterations for each of the values. We ran it with 5 instead which is why you see there are 5 points for each min_n and mtry.
+
+```{r}
+health_fit %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+```
+
+### Different way to plot
+
+```{r}
+health_fit %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  mutate(min_n = factor(min_n)) %>%
+  ggplot(aes(mtry, mean, color = min_n)) +
+  geom_line(alpha = 0.5, size = 1.5) +
+  geom_point() +
+  labs(y = "Accuracy")
+```
+
+### Collect the results
+
+```{r}
+rf_best <- 
+  health_fit %>% 
+  select_best(metric = "accuracy")
+
+rf_best
+
+rf_auc_fit <- 
+  health_fit %>% 
+  collect_predictions(parameters = rf_best) 
+```
+
+### Metrics
+
+#### Confusion Matrix
+
+We can generate a confusion matrix by using the `conf_mat()` function by supplying the data frame (`rf_auc_fit`), the truth column `gen_health` and predicted class `.pred_class` in the estimate attribute.
+
+A confusion matrix is sort of a 2x2 (or n*n table for multiclass problems) table with the true values on one side and predicted values in another column. If we look on the diagonal we see when the model correctly predicts the values `gen_health` and off diagonal is when the model does not predict the correct value.
+
+Here is the confusion matrix for all 5 of the folds. 
+
+```{r}
+conf_mat(rf_auc_fit, truth = gen_health,
+         estimate = .pred_class)
+```
+
+#### Accuracy
+
+We can calculate the classification accuracy by using the `accuracy()` function by supplying the final data frame `rf_auc_fit`, the truth column `gen_health` and predicted class `.pred_class` in the estimate attribute. 
+
+```{r}
+accuracy(rf_auc_fit, truth = gen_health,
+         estimate = .pred_class)
+```
+
+#### Sensitivity
+
+```{r}
+sens(rf_auc_fit, truth = gen_health,
+         estimate = .pred_class)
+```
+
+#### Specificity
+
+```{r}
+spec(rf_auc_fit, truth = gen_health,
+         estimate = .pred_class)
+```
+
+#### F1 Score
+
+```{r}
+f_meas(rf_auc_fit, truth = gen_health,
+         estimate = .pred_class)
+```
+
+## Final model
+
+Above we are looking at our trained model over the cross-validation sets. We have not actually tested our model on our test data. To run the last model we need to back to our workflow and use the `last_fit` function. Note that we use the `cv_split` object rather than the train or test data objects. This will will fit the model to the entire training set and evaluate it with the testing set. We need to back to our workflow object (somewhat counter intuitive). 
+
+```{r}
+final_model <- finalize_model(
+                  rf_model,
+                  rf_best
+                )
+
+final_model
+```
+
+### Variable Importance
+
+```{r}
+tree_prep <- prep(health_recipe)
+
+final_model %>%
+  set_engine("ranger", importance = "permutation") %>%
+  fit(gen_health ~ .,
+    data = juice(tree_prep)) %>%
+  vip(geom = "point")
+```
+
+### Final Model Fit
+
+```{r}
+final_rf_workflow <- workflow() %>%
+                      add_recipe(health_recipe) %>%
+                      add_model(final_model)
+
+final_results <- final_rf_workflow %>%
+                    last_fit(cv_split)
+
+final_results %>%
+  collect_metrics()
+```
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+
