@@ -1,0 +1,251 @@
+---
+title: "Unsupervised Learning"
+output:
+      html_document:
+        keep_md: true
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(tidyclust)
+library(ClusterR)
+library(klaR)
+library(GGally)
+library(knitr)
+library(gtsummary)
+library(devtools)
+library(ggmosaic)
+library(tune)
+library(recipes)
+library(yardstick)
+library(parsnip)
+library(tidyverse)
+```
+
+# Unsupervised Learning
+
+## Research question and data
+
+We are using a version of the CanPath student dataset [https://canpath.ca/student-dataset/](https://canpath.ca/student-dataset/). The nice thing about this dataset is that it's pretty big in terms of sample size, has lots of variables, and we can use it for free. We have a large number of variables about people's disease status and we want to develop an indicator of multimorbity using unsupervised learning. 
+
+Our research question is:  
+
+- **Can we develop an indicator of multimorbidity and identify grouping of co-occuring disease in the sample**
+
+### Reading in data
+
+Here are reading in data and getting organized to run our models. 
+
+```{r}
+data <- read_csv("canpath_data.csv")
+
+data <- data %>% mutate_at(3, factor)
+data <- data %>% mutate_at(5:6, factor)
+data <- data %>% mutate_at(8:12, factor)
+data <- data %>% mutate_at(15:81, factor)
+data <- data %>% mutate_at(83:93, factor)
+
+data$ID <- NULL
+data$ADM_STUDY_ID <- NULL
+```
+
+### Disease Status
+
+We have a number of variables with the labels `DIS_` we are going to use those to develop our unsupervised learning model. These variables are all categorical and are coded as the following 
+
+* DIS_*_EVER	0	Never had disease
+* DIS_*_EVER	1	Ever had disease
+* DIS_*_EVER	2	Presumed - Never had disease
+
+We are going to recode these to 
+
+* 0 Never had disease
+* 1 Presumed - Never had disease
+* 2 Ever had disease
+
+Let's filter the data so we only have disease for the individuals. There are also variables that have family history that have the `_FAM_` or `_SIB_` or `_CHILD_` flags in the variable name. We don't really want those. 
+
+```{r}
+data <- data %>% dplyr::select(!c(contains("_FAM_") | contains("_SIB_") | contains("_CHILD_")))
+```
+
+Let's create a subset of the data with only the disease variables
+
+```{r}
+data_disease <- data %>% dplyr::select(contains("DIS_"))
+glimpse(data_disease)
+
+data_disease <- data_disease %>% 
+     mutate_all(list(rec = ~ recode(., 
+                                    "0" = "0", 
+                                    "2" = "1", 
+                                    "1" = "2", 
+                                    .default = NA_character_)))
+
+table(data_disease$DIS_HBP_EVER, data_disease$DIS_HBP_EVER_rec)
+
+data_disease <- data_disease %>% select(28:54)
+
+data_disease <- data_disease %>% mutate_at(1:27, as.integer)
+```
+
+We have 27 disease status variables in the data and we want to create clusters of commonly groups diseases. 
+
+We are going to use K-means cluster here to understand which disease tend to go together. K-means is very common method for clustering (read: unsupervised learning) but it only considers continuous predictor variables. Here the data are actually categorical and we could use a method like k-medians or k-modes, which allow categorical predictors but it's much harder to visualize and understand what is happening with other methods.... so we are just considering our categorical variables as continuous. We are again using `Tidymodels` for this so the analysis will have a similar set. 
+
+In the `Tidymodels` framework we setup a workflow. A workflow must includ the following
+
+* A Recipe `add_recipe` which is how we tell the workflow to process the data.
+* A Model `add_model` which specifies the model paramaters
+
+We will also set seed to ensure reproducibility. 
+
+### Model 
+
+There are different ways to fit this model, and the method of estimation is chosen by setting the model engine. The engine-specific pages for this model are listed below.
+
+* stats: Classical K-means
+* ClusterR: Classical K-means
+* klaR: K-Modes
+* clustMixType: K-prototypes
+
+We are using the `stats` package. 
+
+```{r}
+set.seed(10)
+
+### Model
+kmeans_model <- k_means(num_clusters = 3) %>%
+                  set_engine("stats")
+kmeans_model
+```
+
+### Recipe 
+
+The recipe is just the model we are going to run. In the logsitic regression example we say more things happening in the recipe but this is straightforward because all of the data are the same units and we are just doing listwise deletion on the missing. 
+
+```{r}
+### Recipe 
+kmeans_recipe <- recipe( ~., data = data_disease)
+```
+
+### Workflow
+
+Once we have the recipe we can run the workflow to have and object that will let us fit the model. This will come in handy later when we want to run a few different iterations of the model to try and understand which number clusters is the best. 
+
+```{r}
+set.seed(10)
+
+### Workflow
+kmeans_workflow <- workflow() %>%
+    add_recipe(kmeans_recipe) %>%
+    add_model(kmeans_model)
+```
+
+### Fit the model
+
+Now we fit the model. 
+
+```{r}
+set.seed(10)
+
+kmeans_fit <- kmeans_workflow %>% fit(data=data_disease)
+
+kmeans_fit
+```
+
+The output shows us that we have 3 clusters (we defined that at the begining) with sample sizes of 25528, 1861, 13798 in each cluster. 
+
+We see the means for each cluster for each variable and which person is in which cluster. 
+
+### Save the cluster variable
+
+Now we want to save the cluster variable and put it back in our dataset. That we we can visualize what is happening with the clusters and the specific variables and try and make sense of which cluster variables tend to go together. 
+
+```{r}
+clusters <- kmeans_fit %>% extract_cluster_assignment()
+clusters <- as.data.frame(clusters)
+
+names(clusters) <- c("cluster")
+data$clusters <- clusters$cluster
+```
+
+Let's make a pairs plot to visualize how the clusters hang together with the actual variables. We will only do this for a few variables because otherwise it's a bit too much to visualize. 
+
+```{r}
+data %>%
+    dplyr::select(c("DIS_HBP_EVER", "DIS_MI_EVER", "DIS_STROKE_EVER", "DIS_ASTHMA_EVER", "DIS_COPD_EVER", "DIS_DEP_EVER", "clusters")) %>%
+    ggpairs(aes(fill = clusters, color = clusters))
+```
+
+We can also visualize the centroid of each cluster for each variable
+
+```{r}
+centroids <- extract_centroids(kmeans_fit)
+
+centroids_long <- centroids %>% pivot_longer(cols=c("DIS_HBP_EVER_rec", "DIS_MI_EVER_rec", "DIS_STROKE_EVER_rec", "DIS_ASTHMA_EVER_rec", "DIS_COPD_EVER_rec", "DIS_DEP_EVER_rec", "DIS_DIAB_EVER_rec", "DIS_LC_EVER_rec", "DIS_CH_EVER_rec", "DIS_CROHN_EVER_rec", "DIS_UC_EVER_rec", "DIS_IBS_EVER_rec", "DIS_ECZEMA_EVER_rec", "DIS_SLE_EVER_rec", "DIS_PS_EVER_rec", "DIS_MS_EVER_rec", "DIS_OP_EVER_rec", "DIS_ARTHRITIS_EVER_rec", "DIS_CANCER_EVER_rec", "DIS_CANCER_F_EVER_rec", "DIS_CANCER_M_EVER_rec", "DIS_ENDO_HB_CHOL_EVER_rec", "DIS_CARDIO_HD_EVER_rec", "DIS_RESP_SLEEP_APNEA_EVER_rec", "DIS_RESP_SLEEP_APNEA_EVER_rec", "DIS_MH_ANXIETY_EVER_rec", "DIS_MH_ADDICTION_EVER_rec", "DIS_NEURO_MIGRAINE_EVER_rec"))
+
+ggplot(data = centroids_long, aes(x = name, y = value, group = .cluster, color = .cluster)) +
+    geom_point() +
+    geom_line() +
+    labs(x="", y="Value at cluster center") + 
+  theme(axis.text.x = element_text(angle=45, hjust = 1))
+```
+
+Here we can see that cluster 2, which is the least common with has a relatively high proportion of all disease. Cluster 3 has a high proportion of 3 diseases, `ENDO_HB_CHOL`, `NEURO_MIGRAINE`, and `SLEEP_APNEA`. 
+
+### How many clusters? 
+
+A key question with cluster analysis is how many clusters to select. We can `tune()` the number of clusters parameter to try and get to a better solution for this. We do this using the tune parameter on the num_clusters function in the model step of tidymodels. 
+
+```{r}
+### Model with tuning of cluster #
+kmeans_model_tune <- k_means(num_clusters = tune()) %>%
+                  set_engine("stats")
+```
+
+```{r}
+### Workflow
+kmodes_workflow_tune <- workflow() %>%
+    add_recipe(kmeans_recipe) %>%
+    add_model(kmeans_model_tune)
+
+folds <- vfold_cv(data_disease, v = 2)
+grid <- tibble(num_clusters=1:10)
+```
+
+## NOT RUN
+
+The code below takes around 3 hours on a M4 Mac Mini so run with caution. 
+
+```{r}
+tuned_model <- tune_cluster(kmodes_workflow_tune, 
+                        resamples = folds, 
+                        grid = grid,
+                       metrics = cluster_metric_set(silhouette_avg), 
+                       control = control_resamples(save_pred = TRUE, 
+                                                  verbose = TRUE)
+                       )
+```
+
+Here we see the results of all of the 20 models we ran. We can plot the silhouette score across each model to better understand which number of clusters is optimal. 
+
+```{r}
+collect_metrics(tuned_model) %>% head()
+
+autoplot(tuned_model)
+```
+
+The silhouette plot suggests that the 5 cluster solution probably optimal. 
+
+## Ressources
+
+* [https://gedeck.github.io/DS-6030/book/clustering.html](https://gedeck.github.io/DS-6030/book/clustering.html)
+* [https://tidyclust.tidymodels.org/index.html](https://tidyclust.tidymodels.org/index.html)
+* [https://cran.r-project.org/web/packages/ClusterR/ClusterR.pdf](https://cran.r-project.org/web/packages/ClusterR/ClusterR.pdf)
+
+```{r}
+sessionInfo()
+```
+
