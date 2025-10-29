@@ -3,7 +3,6 @@ title: "AI4PH 25FA: Assignment 2"
 output:
   html_document:
     keep_md: true
-  pdf_document: default
 date: "Due Date: 2025-11-14"
 author: "YOUR NAME HERE" 
 ---
