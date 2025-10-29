@@ -49,4 +49,9 @@ Code examples for the assignments are available in the [Data Analysis](https://g
 
 ## Assignment 2
 
-### Assignment 2 Description - Coming Soon
+### [Assignment 2 Description](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Assignments/Assignment_2.md)
+
+1. K-Means Cluster Analysis Example
+    * [Nicely rendred .md file](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning.md) 
+    * [Actually .Rmd code](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning.Rmd)
+
