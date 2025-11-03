@@ -16,12 +16,10 @@ knitr::opts_chunk$set(echo = TRUE,
                       )
 ```
 
+**Notes:** 
 
-Please complete this notebook and upload it to the course website in **PDF format**.  
-Ensure that the knitted PDF has all necessary code and text output. 
-
-The assignment is set up to use data available through R packages. You are welcome to instead use the CANPATH dataset for some or all of the coding questions, ensuring that the core modelling tasks remain the same. In this case please additionally add a brief description of your approach (e.g., types of variables being used and research question you want to answer) and whether you needed to change any key modelling decisions due to the different data source (e.g., distance metric to match data type).
-
+ - Please complete this notebook and upload it to the course website in **PDF format**. Ensure that the knitted PDF has all necessary code and text output. 
+ - Suggested packages are provided in code chunks throughout the assignment; however, you can use different packages as long as they allow you to answer the question as asked (e.g., same algorithm and distance metric, if relevant). 
 
 
 ## Written Questions 
@@ -104,6 +102,7 @@ Steps:
 
 ```{r q4-data}
 # Load required packages
+# remember the course pre-work encouraged pre-installing these. If you haven't done that or would like to install others the command is install.packages(c("ISLR2", "factoextra", "cluster", "topicmodels"))
 library(tidyverse)
 library(ISLR2)
 library(cluster)
@@ -114,7 +113,7 @@ data("USArrests")
 
 ```
 
-2. Scale the variables to mean=0, sd=1. K-means is distance based so if the variables are not scale the variables with larger range will dominate the clustering. 
+2. Scale the variables to mean=0, sd=1. K-means is distance based so if the variables are not scale the variables with larger range will dominate the clustering. Note: `scale()` returns a matrix object, which is an acceptable data structure for the clustering algorithm input.
 
 ```{r q4-scale}
 
@@ -122,10 +121,10 @@ data("USArrests")
 
 ```
 
-3. Apply k-means clustering for 2 to 6 clusters.  
+3. Apply k-means clustering for 2 to 6 clusters. Set a seed for reproducibility: `set.seed(123)`.
 
 ```{r q4-cluster}
-
+set.seed(123)
 # YOUR CODE HERE 
 
 ```
@@ -186,7 +185,7 @@ data("USArrests")
 > YOUR TEXT HERE  
 
 
-5. Select one of the dendrograms and decide the number of clusters to keep. Justify this decision. 
+4. Select one of the dendrograms and decide the number of clusters to keep. Justify this decision. 
 
 > **Answer:**   
 > YOUR TEXT HERE  
@@ -217,7 +216,7 @@ What is the automatically loaded data structure?
 
 
 
-2. Fit LDA models with 2, 4, and 6 topics. Use the seed 123 to allow for reproducibility of results. 
+2. Fit LDA models with 2, 4, and 6 topics. Use the seed 123 to allow for reproducibility of results. Note: LDA computation may take 5-30 minutes depending on your computer. This is normal - be patient while the models fit.
 
 ```{r q6-tm}
 

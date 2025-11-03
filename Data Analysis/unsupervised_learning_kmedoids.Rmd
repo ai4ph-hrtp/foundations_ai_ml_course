@@ -1,0 +1,281 @@
+---
+title: "Unsupervised Learning: K Medoids with Jaccard Distance"
+output:
+      html_document:
+        keep_md: true
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE, 
+                      warning = FALSE)
+
+# packages 
+library(knitr)
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(ggplot2)
+```
+
+# Unsupervised Learning
+
+## Research question and data
+
+We are using a version of the CanPath student dataset [https://canpath.ca/student-dataset/](https://canpath.ca/student-dataset/). The nice thing about this dataset is that it's pretty big in terms of sample size, has lots of variables, and we can use it for free. We have a large number of variables about people's disease status and we want to develop an indicator of multimorbity using unsupervised learning. 
+
+Our research question is:  
+
+- **Can we develop an indicator of multimorbidity and identify groupings of co-occuring disease in the sample**
+
+### Reading in data
+
+Here are reading in data and getting organized to run our models. 
+
+We have a number of variables with the labels `DIS_` we are going to use those to develop our unsupervised learning model. These variables are all categorical and are coded as the following 
+
+* DIS_*_EVER	0	Never had disease
+* DIS_*_EVER	1	Ever had disease
+* DIS_*_EVER	2	Presumed - Never had disease
+
+Let's filter the data so we only have disease for the individuals. There are also variables that have family history that have the `_FAM_` or `_SIB_` or `_CHILD_` flags in the variable name, which we are not interested in for now as we are only interested in variables describing disease indications for each individual. Within those there are variables that specify the age the disease was first diagnosed at and variables for whether it was ever diagnosed. For today we will focus on the latter. 
+
+
+```{r}
+# read in the data
+data <- read_csv("canpath_data.csv", show_col_types = FALSE)
+dim(data)
+head(data,2)
+```
+
+```{r}
+# Select columns matching the pattern to keep only the columns we want 
+data_disease <- data %>%
+  dplyr::select(matches("^DIS_.*_EVER$")) %>% 
+  dplyr::select(!c(contains("_FAM_") | contains("_SIB_") | contains("_CHILD_") | contains("_F_") | contains("_M_"))) %>% 
+  mutate(across(everything(), 
+                ~ case_when(
+                  . %in% c(99, -7) ~ NA_real_,
+                  TRUE ~ .
+                )))
+
+dim(data_disease)
+glimpse(data_disease)
+
+```
+
+
+Next, let's get a sense of the prevalence of the different diseases. 
+
+```{r}
+# Create frequency table with percentages
+freq_table <- data_disease %>%
+  pivot_longer(everything(), names_to = "Column", values_to = "Value") %>%
+  group_by(Column, Value) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Column) %>%
+  mutate(Percentage = round(n / sum(n) * 100, 2)) %>%
+  arrange(Column, Value)
+
+print(freq_table)
+
+# Alternative: Wide format 
+freq_wide <- freq_table %>%
+  select(Column, Value, Percentage) %>%
+  pivot_wider(names_from = Value, values_from = Percentage, 
+              names_prefix = "Value_", values_fill = 0)
+
+print(freq_wide)
+```
+
+### Cleaning 
+
+Remove columns with over 80% missingness (assume not reasonable representation in this dataset) and perform complete case analysis (noting this is for a course example and may not be the best approach for real-world analysis as it will likely result in biased results). We will also assume 2 = no disease as this will allow more meaningful clusters. 
+
+```{r}
+data_disease <- data_disease %>% 
+  select(where(~ mean(is.na(.)) <= 0.8)) %>%
+  mutate(across(everything(), 
+                ~ case_when(
+                  . %in% c(2) ~ 0,
+                  TRUE ~ .
+                )))
+
+dim(data_disease) 
+head(data_disease)
+
+
+# although not best practice, for ease of example (and bc need smaller data for in class example) 
+# perform complete case analysis to remove 
+complete_cases <- complete.cases(data_disease)
+df <- data_disease[complete_cases, ]
+dim(df)  
+head(df)
+```
+```{r}
+# look at the prevalence 
+prev <- df %>%
+  summarise(across(everything(), ~ mean(., na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Prevalence")
+
+print(prev %>% arrange(Prevalence))
+```
+
+Additionally we will remove diseases with low prevalence (<1%) as this will help to speed up and improve the quality of clustering. Alternative options would be to group rare diseases or work to find a clustering algorithm that can handle the sparsity. 
+
+```{r}
+# Remove rare diseases (<1%) to speed up and improve clustering
+vars_to_keep <- prev %>%
+  filter(Prevalence > 0.01 & Prevalence < 0.99) %>%
+  pull(Variable)
+
+cat("\nRemoving", ncol(df) - length(vars_to_keep), "very sparse variables\n")
+df <- df %>% select(all_of(vars_to_keep))
+
+dim(df)  
+head(df, 2)
+```
+
+We have 19 disease status variables in the data and we want to create clusters that may give a sense of how diseases cluster together. 
+
+## Clustering 
+
+K means (the most common clustering algorithm) is not applicable here as it uses the Euclidean distance, which assumes continuous variables. While it is possible to run the algorithm and get an output, it is not necessarily meaningful and the centroids will not be interpretable. 
+
+Instead, we will use K-medoids which works with any distance metric and uses an actual datapoint as the centroid. We will use the Jaccard distance, which is designed for binary data. 
+
+
+### Distance Matrix 
+
+```{r}
+# select subset for speed 
+set.seed(123)
+df_sample <- df %>% slice_sample(n = 5000)
+
+# Binary distance is equivalent to Jaccard for binary data
+dist_matrix <- dist(df_sample, method = "binary")
+```
+
+### Clustering 
+
+```{r}
+# 3. Determine optimal k
+set.seed(123)
+
+# Manual silhouette calculation for different k values
+sil_widths <- numeric(9)
+for(k in 2:10) {
+  pam_temp <- pam(dist_matrix, k = k, diss = TRUE)
+  sil_widths[k-1] <- pam_temp$silinfo$avg.width
+}
+
+# Plot silhouette 
+# Note that since the SS keeps increasing it suggests that the clustering is not finding natural groups 
+# for now we will proceed 
+plot_data <- data.frame(k = 2:10, silhouette = sil_widths)
+ggplot(plot_data, aes(x = k, y = silhouette)) +
+  geom_line() +
+  geom_point(size = 3) +
+  theme_minimal() +
+  labs(title = "Selecting the Number of Clusters",
+       x = "Number of Clusters (k)",
+       y = "Average Silhouette Score")
+
+```
+
+
+```{r}
+# rerun with the selected number of clusters 
+k <- 5 
+set.seed(123)
+pam_result <- pam(dist_matrix, k = k, diss = TRUE)
+
+# Add cluster assignments
+df_sample$cluster <- pam_result$clustering
+
+# can see the cluster each row is assigned to
+head(df_sample, 3)
+```
+
+#### Results Exploration  
+
+```{r}
+# identify the medoids 
+medoid_indices <- pam_result$id.med
+medoids_df <- df_sample[medoid_indices, ]
+medoids_df$cluster <- 1:k
+
+
+# Show medoid as list of diseases they have
+for(i in 1:k) {
+  cat("\nCluster", i, "Medoid has:\n")
+  diseases <- names(medoids_df)[medoids_df[i,] == 1]
+  diseases <- diseases[diseases != "cluster"]
+  print(diseases)
+}
+
+```
+
+
+```{r}
+# cluster disease profiles
+cluster_profiles <- df_sample %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    across(all_of(vars_to_keep), ~ mean(., na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+# can see prevalence of the diseases by cluster
+# note that high prevalence matches the medoids 
+print(cluster_profiles)
+```
+
+```{r}
+profiles_long <- cluster_profiles %>%
+  select(-n) %>%
+  pivot_longer(-cluster, names_to = "Disease", values_to = "Prevalence")
+
+ggplot(profiles_long, aes(x = Disease, y = factor(cluster), fill = Prevalence)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "white", high = "darkred", mid = "pink",
+                       midpoint = 0.5, limit = c(0,1),
+                       labels = scales::percent) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  labs(title = "Disease Prevalence by Cluster",
+       x = "Disease", y = "Cluster", fill = "% Present")
+```
+
+```{r}
+
+# PCA plot to visualize 
+# the diseases are reduced to two dimensions for visualization
+# each dot is an individual; each colour represents a disease 
+pca_result <- prcomp(df_sample, scale. = FALSE)
+pca_df <- data.frame(
+  PC1 = pca_result$x[, 1],
+  PC2 = pca_result$x[, 2],
+  Cluster = factor(pam_result$clustering)
+)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Cluster)) +
+  geom_point(alpha = 0.6) +
+  stat_ellipse(level = 0.95) +
+  scale_color_brewer(palette = "Set2") +
+  theme_minimal() +
+  labs(title = "PAM Clustering - PCA Projection",
+       x = paste0("PC1 (", round(summary(pca_result)$importance[2,1]*100, 1), "%)"),
+       y = paste0("PC2 (", round(summary(pca_result)$importance[2,2]*100, 1), "%)"))
+
+
+```
+
+
+
+
+
+
+
+
