@@ -11,3 +11,7 @@
 3. K-Means Cluster Analysis Example
     * [Nicely rendred .md file](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning.md) 
     * [Actually .Rmd code](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning.Rmd)
+    
+3. K-Medoids Cluster Analysis Example
+    * [Nicely rendred .md file](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning_kmedoids.md) 
+    * [Actually .Rmd code](https://github.com/ai4ph-hrtp/foundations_ai_ml_course/blob/main/Data%20Analysis/unsupervised_learning_kmedoids.Rmd)
