@@ -1,9 +1,8 @@
 ---
-title: "AI4PH 25FA: Assignment 2"
+title: "AI4PH Foundations of AI/ML: Assignment 2"
 output:
   html_document:
     keep_md: true
-date: "Due Date: 2025-11-14"
 author: "YOUR NAME HERE" 
 ---
 
